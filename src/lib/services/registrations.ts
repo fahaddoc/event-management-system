@@ -74,11 +74,12 @@ export async function myTickets(userId: string) {
     .sort({ createdAt: -1 })
   return regs.map((r) => {
     const ev = r.event as unknown as { _id: unknown; toObject: () => Record<string, unknown> }
+    const event: Record<string, unknown> = { ...ev.toObject(), _id: String(ev._id) }
     return {
       _id: String(r._id),
       ticketNumber: r.ticketNumber,
       status: r.status,
-      event: { ...ev.toObject(), _id: String(ev._id) },
+      event,
     }
   })
 }
