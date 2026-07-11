@@ -26,8 +26,9 @@ export async function registerForEvent(eventId: string, userId: string) {
   if (!claimed) throw new ServiceError(409, 'Event is full')
 
   const ticketNumber = makeTicketNumber(String(eventId))
+
+  let reg
   try {
-    let reg
     if (existing) {
       existing.status = 'active'
       existing.ticketNumber = ticketNumber
@@ -35,6 +36,18 @@ export async function registerForEvent(eventId: string, userId: string) {
     } else {
       reg = await Registration.create({ user: userId, event: eventId, ticketNumber, status: 'active' })
     }
+  } catch (err: unknown) {
+    // Roll back the seat claim if the registration insert failed (e.g. duplicate race).
+    await Event.findByIdAndUpdate(eventId, { $inc: { registeredCount: -1 } })
+    if (typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000) {
+      throw new ServiceError(409, 'Already registered')
+    }
+    throw err
+  }
+
+  // Confirmation email is best-effort: a mail failure must not fail (or roll back)
+  // a registration whose ticket is already issued.
+  try {
     const user = await User.findById(userId)
     if (user) {
       await sendConfirmationEmail(user.email, {
@@ -46,15 +59,11 @@ export async function registerForEvent(eventId: string, userId: string) {
         ticketNumber,
       })
     }
-    return { _id: String(reg._id), ticketNumber, event: String(eventId), status: reg.status }
-  } catch (err: unknown) {
-    // Roll back the seat claim if the registration insert failed (e.g. duplicate race).
-    await Event.findByIdAndUpdate(eventId, { $inc: { registeredCount: -1 } })
-    if (typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000) {
-      throw new ServiceError(409, 'Already registered')
-    }
-    throw err
+  } catch (err) {
+    console.error('[registrations] confirmation email failed:', err)
   }
+
+  return { _id: String(reg._id), ticketNumber, event: String(eventId), status: reg.status }
 }
 
 export async function cancelRegistration(eventId: string, userId: string) {

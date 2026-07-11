@@ -1,36 +1,124 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Eventful — Event Management System
 
-## Getting Started
+Full-stack event management app: users create events (admin-moderated), browse and
+search published events, and register with seat limits, duplicate prevention, and
+emailed ticket confirmations. Admins moderate events, view attendees, and export CSV.
 
-First, run the development server:
+Built with **Next.js 16 (App Router)**, **MongoDB/Mongoose**, **shadcn/ui**, JWT (httpOnly
+cookie) auth, and **Nodemailer** (Ethereal in dev).
+
+## Features
+
+- Auth: register / login / logout / update profile (JWT + bcrypt, httpOnly cookie).
+- Any logged-in user creates events → `pending` → admin approves (`published`) or rejects.
+- Public browse: home feeds (featured / upcoming / popular), list with search + filters
+  (category, city, date range, upcoming/past, free/paid) + pagination, event detail.
+- Registration: atomic seat limit (no oversell), no duplicates, ticket number,
+  confirmation email, cancel, "My Tickets".
+- Admin dashboard: moderation queue, all-events table, per-event attendee list, CSV export.
+- Responsive UI (Tailwind + shadcn/ui).
+
+## Prerequisites
+
+- Node.js 20+
+- A MongoDB instance (local `mongod`, or MongoDB Atlas)
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.local.example .env.local   # if present; otherwise create .env.local (see below)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+MONGODB_URI=mongodb://127.0.0.1:27017/event_management
+JWT_SECRET=change-me-in-prod
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=admin12345
+EMAIL_FROM="Events <no-reply@events.test>"
+# Production SMTP (optional; dev uses an Ethereal test inbox when unset):
+# SMTP_HOST=
+# SMTP_PORT=587
+# SMTP_USER=
+# SMTP_PASS=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Seed an admin user (from `ADMIN_EMAIL` / `ADMIN_PASSWORD`) and a couple of sample events:
 
-## Learn More
+```bash
+npm run seed
+```
 
-To learn more about Next.js, take a look at the following resources:
+Any user who later registers with the `ADMIN_EMAIL` address is auto-promoted to admin.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Run
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run dev      # http://localhost:3000
+# or
+npm run build && npm run start
+```
 
-## Deploy on Vercel
+## Email in development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+When no `SMTP_*` vars are set, Nodemailer uses an auto-created **Ethereal** test account.
+On each registration the server logs a preview URL:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+[email] preview: https://ethereal.email/message/...
+```
+
+Open it to see the confirmation email. Email sending is best-effort — a mail failure never
+blocks a registration.
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Dev server |
+| `npm run build` / `npm run start` | Production build / serve |
+| `npm run seed` | Create admin + sample events |
+| `npm test` | Run Vitest suite (uses in-memory MongoDB) |
+| `npm run test:watch` | Watch mode |
+| `npm run lint` | ESLint |
+
+## Testing
+
+Business logic lives in a testable service layer (`src/lib/services/*`); route handlers
+are thin wrappers. Tests run against an in-memory MongoDB (`mongodb-memory-server`) and
+cover auth, event CRUD + authz, published-only listing, moderation gate, atomic capacity
+(oversell blocked), duplicate registration, cancel, and CSV export.
+
+```bash
+npm test
+```
+
+## Architecture
+
+```
+src/
+  lib/
+    db.ts, env.ts, jwt.ts, password.ts, auth.ts, email.ts, ticket.ts, http.ts
+    models/       User, Event, Registration
+    validation/   Zod schemas (auth, event, query)
+    services/     users, events, registrations  (business logic — unit tested)
+  app/
+    api/**        route handlers (thin: validate → service → json)
+    (pages)       home, events, events/[id], events/new, events/[id]/edit,
+                  login, register, profile, dashboard, admin
+  proxy.ts        route guard (Next 16 proxy convention): protects
+                  /dashboard, /profile, /events/new, /events/[id]/edit, /admin
+```
+
+## Deploy
+
+- App: Vercel (set the env vars above in the project settings; add real `SMTP_*`).
+- Database: MongoDB Atlas (put its URI in `MONGODB_URI`).
+
+## Out of scope (future work)
+
+QR-code tickets, reminder/scheduled emails, real-time attendee counts (WebSockets), PWA,
+push notifications, AI recommendations, and payment processing (a `price` field exists but
+there is no payment gateway).
